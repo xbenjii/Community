@@ -1,0 +1,59 @@
+- name: "Set DNS Record on CloudFlare"
+  include_role:
+    name: cloudflare
+  vars:
+    subdomain: pihole
+  when: cloudflare_enabled
+
+- name: Stop and remove any existing container
+  docker_container:
+    name: pihole
+    state: absent
+
+- name: Create pihole directories
+  file: "path={{ item }} state=directory mode=0775 owner={{ user.name }} group={{ user.name }}"
+  with_items:
+    - /opt/pihole/etc-pihole
+    - /opt/pihole/etc-dnsmasq.d
+
+- name: Create and start container
+  docker_container:
+    name: pihole
+    image: "pihole/pihole:latest"
+    pull: yes
+    ports:
+      - "{{ ansible_default_ipv4.address }}:53:53/tcp"
+      - "{{ ansible_default_ipv4.address }}:53:53/udp"
+      - "67:67/udp"
+    volumes:
+      - "/opt/pihole/etc-pihole/:/etc/pihole/"
+      - "/opt/pihole/etc-dnsmasq.d/:/etc/dnsmasq.d/"
+    env:
+      VIRTUAL_HOST: "pihole.{{ user.domain }}"
+      VIRTUAL_PORT: 80
+      LETSENCRYPT_HOST: "pihole.{{ user.domain }}"
+      LETSENCRYPT_EMAIL: "{{ user.email }}"
+      TZ: "{{ tz }}"
+      DNSMASQ_USER: root
+    labels:
+      "com.github.cloudbox.cloudbox_managed": "true"
+    dns_servers:
+      - "127.0.0.1"
+      - "1.1.1.1"
+    capabilities:
+      - NET_ADMIN
+    networks:
+      - name: cloudbox
+        aliases:
+          - pihole
+    purge_networks: yes
+    restart_policy: always
+    state: started
+
+- name: "Ensure config folder has the correct permissions"
+  file:
+    path: "/opt/pihole"
+    owner: "{{ user.name }}"
+    group: "{{ user.name }}"
+    mode: 0775
+    recurse: yes
